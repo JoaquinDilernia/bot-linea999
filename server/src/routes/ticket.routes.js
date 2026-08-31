@@ -10,8 +10,8 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 
 
 router.get('/', async (req, res) => {
   try {
-    const { estado, prioridad } = req.query;
-    res.json({ tickets: await getAllTickets({ estado, prioridad }) });
+    const { estado, prioridad, categoria } = req.query;
+    res.json({ tickets: await getAllTickets({ estado, prioridad, categoria }) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -28,7 +28,7 @@ router.get('/:id', async (req, res) => {
 });
 
 router.post('/', async (req, res) => {
-  const { titulo, descripcion, contactId, prioridad, imagenes } = req.body;
+  const { titulo, descripcion, contactId, prioridad, categoria, imagenes } = req.body;
   if (!titulo?.trim() || !descripcion?.trim()) return res.status(400).json({ error: 'titulo y descripcion son requeridos' });
   try {
     const ticket = await createTicket({
@@ -36,6 +36,7 @@ router.post('/', async (req, res) => {
       descripcion: descripcion.trim(),
       contactId: contactId || null,
       prioridad: prioridad || 'media',
+      categoria: categoria || 'otro',
       imagenes: imagenes || [],
       createdBy: req.agent.email,
     });

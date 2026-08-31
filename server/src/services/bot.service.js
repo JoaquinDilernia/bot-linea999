@@ -296,6 +296,7 @@ async function processIncomingMessageInternal(msg) {
         descripcion: reclamoParams.descripcion || '',
         contactId: from,
         prioridad: ['baja', 'media', 'alta', 'urgente'].includes(reclamoParams.prioridad) ? reclamoParams.prioridad : 'media',
+        categoria: reclamoParams.categoria || 'otro',
         imagenes: imageMediaId ? [{ mediaId: imageMediaId, mimeType: 'image/jpeg' }] : [],
         createdBy: 'bot',
       });

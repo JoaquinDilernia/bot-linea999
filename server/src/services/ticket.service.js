@@ -2,10 +2,27 @@ import { getDb } from './firebase.service.js';
 import { listUsers } from './auth.service.js';
 import { getAllTemplates } from './template.service.js';
 import { sendWhatsAppTemplate, sendWhatsAppMessage } from './meta.service.js';
+import { appendMessage } from './conversation.service.js';
 
 const COLLECTION = 'bot-nuevaaurora_reclamos';
 const COUNTER_COLLECTION = 'bot-nuevaaurora_counters';
 const RESOLVED_TEMPLATE_NAME = 'ticket_resuelto';
+
+// Categorías fijas — el bot categoriza solo al crear el reclamo (ver
+// claude.service.js), y un agente puede corregirla desde el panel. Fijas
+// (no un CRUD como Áreas) porque lo que importa acá es que sea siempre el
+// mismo set chico para que las estadísticas por categoría tengan sentido.
+export const CATEGORIAS_RECLAMO = [
+  { id: 'demora', label: 'Demora' },
+  { id: 'mal_trato', label: 'Mal trato' },
+  { id: 'manejo_peligroso', label: 'Manejo peligroso' },
+  { id: 'unidad_mal_estado', label: 'Unidad en mal estado' },
+  { id: 'cobro_indebido', label: 'Cobro indebido' },
+  { id: 'objeto_perdido', label: 'Objeto perdido' },
+  { id: 'no_realizo_parada', label: 'No realizó la parada' },
+  { id: 'otro', label: 'Otro' },
+];
+const CATEGORIA_IDS = CATEGORIAS_RECLAMO.map(c => c.id);
 
 // Número de reclamo correlativo y legible (L999-000001) — mucho más fácil
 // de anotar/repetir por teléfono para un pasajero que un ID de Firestore.
@@ -27,12 +44,13 @@ async function nextReclamoNumero() {
 // Filtra en memoria en vez de con `.where()` encadenados: el volumen esperado
 // de reclamos es bajo y así se evita necesitar un índice compuesto para
 // cada combinación de estado+prioridad+orderBy.
-export async function getAllTickets({ estado, prioridad } = {}) {
+export async function getAllTickets({ estado, prioridad, categoria } = {}) {
   const db = getDb();
   const snap = await db.collection(COLLECTION).orderBy('createdAt', 'desc').get();
   let tickets = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   if (estado) tickets = tickets.filter(t => t.estado === estado);
   if (prioridad) tickets = tickets.filter(t => t.prioridad === prioridad);
+  if (categoria) tickets = tickets.filter(t => t.categoria === categoria);
   return tickets;
 }
 
@@ -52,7 +70,7 @@ export async function getDefaultAssignee() {
   return admin?.email ?? null;
 }
 
-export async function createTicket({ titulo, descripcion, contactId = null, prioridad = 'media', imagenes = [], createdBy }) {
+export async function createTicket({ titulo, descripcion, contactId = null, prioridad = 'media', categoria = 'otro', imagenes = [], createdBy }) {
   const db = getDb();
   const [assignedTo, numero] = await Promise.all([getDefaultAssignee(), nextReclamoNumero()]);
   const ticket = {
@@ -62,6 +80,9 @@ export async function createTicket({ titulo, descripcion, contactId = null, prio
     contactId,
     conversationId: contactId,
     prioridad,
+    categoria: CATEGORIA_IDS.includes(categoria) ? categoria : 'otro',
+    legajoChofer: '',
+    numeroUnidad: '',
     estado: 'abierto',
     imagenes,
     createdBy,
@@ -76,7 +97,7 @@ export async function createTicket({ titulo, descripcion, contactId = null, prio
   return { id: ref.id, ...ticket };
 }
 
-export async function updateTicket(id, { titulo, descripcion, prioridad, estado, assignedTo, imagenes } = {}) {
+export async function updateTicket(id, { titulo, descripcion, prioridad, categoria, legajoChofer, numeroUnidad, estado, assignedTo, imagenes } = {}) {
   const db = getDb();
   const docRef = db.collection(COLLECTION).doc(id);
   const before = await docRef.get();
@@ -87,6 +108,9 @@ export async function updateTicket(id, { titulo, descripcion, prioridad, estado,
   if (titulo !== undefined) update.titulo = titulo;
   if (descripcion !== undefined) update.descripcion = descripcion;
   if (prioridad !== undefined) update.prioridad = prioridad;
+  if (categoria !== undefined) update.categoria = CATEGORIA_IDS.includes(categoria) ? categoria : 'otro';
+  if (legajoChofer !== undefined) update.legajoChofer = legajoChofer;
+  if (numeroUnidad !== undefined) update.numeroUnidad = numeroUnidad;
   if (assignedTo !== undefined) update.assignedTo = assignedTo;
   if (imagenes !== undefined) update.imagenes = imagenes;
 
@@ -159,6 +183,11 @@ export async function respondTicket(id, { autor, texto }) {
     notificationStatus = 'failed';
   }
   await docRef.update({ notificationStatus }).catch(() => {});
+
+  // Se guarda en el historial de la conversación (role: 'admin', igual que
+  // cuando un agente manda un WhatsApp manual) para que quien revise el
+  // chat del pasajero vea la respuesta ahí también, no solo en el reclamo.
+  await appendMessage(ticket.contactId, { role: 'admin', content: mensaje, sentBy: autor }).catch(() => {});
 
   const after = await docRef.get();
   return { id: after.id, ...after.data() };

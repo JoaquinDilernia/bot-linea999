@@ -4,7 +4,18 @@ import styles from './Reclamos.module.css';
 
 const PRIORIDADES = ['baja', 'media', 'alta', 'urgente'];
 const ESTADOS = ['abierto', 'en_progreso', 'resuelto', 'cerrado'];
-const EMPTY_RECLAMO = { titulo: '', descripcion: '', prioridad: 'media', contactId: '' };
+const CATEGORIAS = [
+  { id: 'demora', label: 'Demora' },
+  { id: 'mal_trato', label: 'Mal trato' },
+  { id: 'manejo_peligroso', label: 'Manejo peligroso' },
+  { id: 'unidad_mal_estado', label: 'Unidad en mal estado' },
+  { id: 'cobro_indebido', label: 'Cobro indebido' },
+  { id: 'objeto_perdido', label: 'Objeto perdido' },
+  { id: 'no_realizo_parada', label: 'No realizó la parada' },
+  { id: 'otro', label: 'Otro' },
+];
+const categoriaLabel = id => CATEGORIAS.find(c => c.id === id)?.label ?? id;
+const EMPTY_RECLAMO = { titulo: '', descripcion: '', prioridad: 'media', categoria: 'otro', contactId: '' };
 
 function TicketImage({ mediaId }) {
   const token = localStorage.getItem('na_token');
@@ -24,6 +35,7 @@ export default function Reclamos() {
   const [selected, setSelected] = useState(null);
   const [filterEstado, setFilterEstado] = useState('');
   const [filterPrioridad, setFilterPrioridad] = useState('');
+  const [filterCategoria, setFilterCategoria] = useState('');
   const [showNew, setShowNew] = useState(false);
   const [newTicket, setNewTicket] = useState(EMPTY_RECLAMO);
   const [newImage, setNewImage] = useState(null); // { mediaId, mimeType } tras subir
@@ -34,7 +46,7 @@ export default function Reclamos() {
   const [responseText, setResponseText] = useState('');
   const [savingResponse, setSavingResponse] = useState(false);
 
-  useEffect(() => { load(); }, [filterEstado, filterPrioridad]);
+  useEffect(() => { load(); }, [filterEstado, filterPrioridad, filterCategoria]);
 
   async function load() {
     setLoading(true);
@@ -42,6 +54,7 @@ export default function Reclamos() {
       const params = new URLSearchParams();
       if (filterEstado) params.set('estado', filterEstado);
       if (filterPrioridad) params.set('prioridad', filterPrioridad);
+      if (filterCategoria) params.set('categoria', filterCategoria);
       const r = await authFetch(BASE_URL + '/api/reclamos?' + params.toString());
       if (r.ok) {
         const data = await r.json();
@@ -167,6 +180,10 @@ export default function Reclamos() {
             <option value="">Toda prioridad</option>
             {PRIORIDADES.map(p => <option key={p} value={p}>{p}</option>)}
           </select>
+          <select value={filterCategoria} onChange={e => setFilterCategoria(e.target.value)}>
+            <option value="">Toda categoría</option>
+            {CATEGORIAS.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+          </select>
         </div>
         {loading ? (
           <p className={styles.empty}>Cargando...</p>
@@ -180,6 +197,7 @@ export default function Reclamos() {
               <div className={styles.ticketItemMeta}>
                 <span className={`${styles.badge} ${styles['prio_' + t.prioridad]}`}>{t.prioridad}</span>
                 <span className={`${styles.badge} ${styles['estado_' + t.estado]}`}>{t.estado.replace('_', ' ')}</span>
+                {t.categoria && <span className={styles.badge}>{categoriaLabel(t.categoria)}</span>}
               </div>
             </button>
           ))
@@ -198,12 +216,20 @@ export default function Reclamos() {
               <span>Descripción</span>
               <textarea rows={4} value={newTicket.descripcion} onChange={e => setNewTicket({ ...newTicket, descripcion: e.target.value })} />
             </label>
-            <label className={styles.field}>
-              <span>Prioridad</span>
-              <select value={newTicket.prioridad} onChange={e => setNewTicket({ ...newTicket, prioridad: e.target.value })}>
-                {PRIORIDADES.map(p => <option key={p} value={p}>{p}</option>)}
-              </select>
-            </label>
+            <div className={styles.formRow}>
+              <label className={styles.field}>
+                <span>Prioridad</span>
+                <select value={newTicket.prioridad} onChange={e => setNewTicket({ ...newTicket, prioridad: e.target.value })}>
+                  {PRIORIDADES.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </label>
+              <label className={styles.field}>
+                <span>Categoría</span>
+                <select value={newTicket.categoria} onChange={e => setNewTicket({ ...newTicket, categoria: e.target.value })}>
+                  {CATEGORIAS.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                </select>
+              </label>
+            </div>
             <label className={styles.field}>
               <span>Teléfono de contacto (opcional — para poder responderle por WhatsApp)</span>
               <input value={newTicket.contactId} onChange={e => setNewTicket({ ...newTicket, contactId: e.target.value })} placeholder="5491100000001" />
@@ -247,7 +273,35 @@ export default function Reclamos() {
                   {PRIORIDADES.map(p => <option key={p} value={p}>{p}</option>)}
                 </select>
               </label>
+              <label>
+                <span>Categoría</span>
+                <select value={selected.categoria ?? 'otro'} onChange={e => updateSelected({ categoria: e.target.value })}>
+                  {CATEGORIAS.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                </select>
+              </label>
             </div>
+
+            <div className={styles.detailRow}>
+              <label className={styles.field}>
+                <span>Legajo del chofer</span>
+                <input
+                  key={`legajo-${selected.id}`}
+                  defaultValue={selected.legajoChofer ?? ''}
+                  placeholder="Ej: 4521"
+                  onBlur={e => { if (e.target.value !== (selected.legajoChofer ?? '')) updateSelected({ legajoChofer: e.target.value.trim() }); }}
+                />
+              </label>
+              <label className={styles.field}>
+                <span>N° interno de la unidad</span>
+                <input
+                  key={`unidad-${selected.id}`}
+                  defaultValue={selected.numeroUnidad ?? ''}
+                  placeholder="Ej: 108"
+                  onBlur={e => { if (e.target.value !== (selected.numeroUnidad ?? '')) updateSelected({ numeroUnidad: e.target.value.trim() }); }}
+                />
+              </label>
+            </div>
+            <p className={styles.respondHint}>Legajo y unidad quedan disponibles para armar estadísticas por chofer/unidad en Estadísticas más adelante.</p>
 
             <p className={styles.detailMeta}><strong>Creado por:</strong> {selected.createdBy === 'bot' ? '🤖 Bot' : selected.createdBy}</p>
             <p className={styles.detailMeta}><strong>Asignado a:</strong> {selected.assignedTo ?? 'Sin asignar'}</p>
